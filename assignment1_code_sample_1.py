@@ -21,7 +21,7 @@ def send_email(to, subject, body):
     os.system(f'echo {shlex.quote(body)} | mail -s {shlex.quote(subject)} {shlex.quote(to)}')
     
 def get_data():
-    url = 'http://insecure-api.com/get-data'
+    url = 'https://insecure-api.com/get-data'
     data = urlopen(url).read().decode()
     return data
 
