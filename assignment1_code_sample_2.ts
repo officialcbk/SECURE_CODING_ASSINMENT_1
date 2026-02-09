@@ -1,65 +1,88 @@
-import * as readline from 'readline';
-import * as mysql from 'mysql';
-import { exec } from 'child_process';
-import * as http from 'http';
+declare const require: any;
+declare const process: any;
+
+const readline = require("readline");
+const mysql = require("mysql");
+const { spawn } = require("child_process");
+const https = require("https");
 
 const dbConfig = {
-    host: 'mydatabase.com',
-    user: 'admin',
-    password: 'secret123',
-    database: 'mydb'
+  host: process.env.DB_HOST || "mydatabase.com",
+  user: process.env.DB_USER || "admin",
+  password: process.env.DB_PASSWORD || "secret123",
+  database: process.env.DB_NAME || "mydb",
 };
 
-function getUserInput(): Promise<string> {
-    const rl = readline.createInterface({
-        input: process.stdin,
-        output: process.stdout
-    });
+function sanitizeInput(input: string): string {
+  // Basic cleanup: trim, limit length, and remove risky characters
+  return input.trim().slice(0, 100).replace(/[^\w\s.-]/g, "");
+}
 
-    return new Promise((resolve) => {
-        rl.question('Enter your name: ', (answer) => {
-            rl.close();
-            resolve(answer);
-        });
+function getUserInput(): Promise<string> {
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout,
+  });
+
+  return new Promise((resolve: (val: string) => void) => {
+    rl.question("Enter your name: ", (answer: string) => {
+      rl.close();
+      resolve(sanitizeInput(answer));
     });
+  });
 }
 
 function sendEmail(to: string, subject: string, body: string) {
-    exec(`echo ${body} | mail -s "${subject}" ${to}`, (error, stdout, stderr) => {
-        if (error) {
-            console.error(`Error sending email: ${error}`);
-        }
-    });
+  const safeTo = sanitizeInput(to);
+  const safeSubject = sanitizeInput(subject);
+  const safeBody = sanitizeInput(body);
+
+  const mail = spawn("mail", ["-s", safeSubject, safeTo]);
+
+  // some environments may not have stdin available
+  if (mail.stdin) {
+    mail.stdin.write(safeBody);
+    mail.stdin.end();
+  }
+
+  mail.on("error", (error: any) => {
+    console.error(`Error sending email: ${error}`);
+  });
 }
 
 function getData(): Promise<string> {
-    return new Promise((resolve, reject) => {
-        http.get('http://insecure-api.com/get-data', (res) => {
-            let data = '';
-            res.on('data', chunk => data += chunk);
-            res.on('end', () => resolve(data));
-        }).on('error', reject);
-    });
+  return new Promise((resolve: (val: string) => void, reject: (err: any) => void) => {
+    https
+      .get("https://insecure-api.com/get-data", (res: any) => {
+        let data = "";
+        res.on("data", (chunk: any) => (data += chunk));
+        res.on("end", () => resolve(data));
+      })
+      .on("error", (err: any) => reject(err));
+  });
 }
 
 function saveToDb(data: string) {
-    const connection = mysql.createConnection(dbConfig);
-    const query = `INSERT INTO mytable (column1, column2) VALUES ('${data}', 'Another Value')`;
+  const connection = mysql.createConnection(dbConfig);
 
-    connection.connect();
-    connection.query(query, (error, results) => {
-        if (error) {
-            console.error('Error executing query:', error);
-        } else {
-            console.log('Data saved');
-        }
-        connection.end();
-    });
+  const query = "INSERT INTO mytable (column1, column2) VALUES (?, ?)";
+  const values = [data, "Another Value"];
+
+  connection.connect();
+
+  connection.query(query, values, (error: any) => {
+    if (error) {
+      console.error("Error executing query:", error);
+    } else {
+      console.log("Data saved");
+    }
+    connection.end();
+  });
 }
 
 (async () => {
-    const userInput = await getUserInput();
-    const data = await getData();
-    saveToDb(data);
-    sendEmail('admin@example.com', 'User Input', userInput);
+  const userInput = await getUserInput();
+  const data = await getData();
+  saveToDb(data);
+  sendEmail("admin@example.com", "User Input", userInput);
 })();
